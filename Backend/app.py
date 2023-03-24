@@ -9,6 +9,7 @@ from classes.operation import Operation
 from sympy import *
 from sympy.parsing.sympy_parser import parse_expr
 import pandas as pd
+import regex as re
 
 app = FastAPI()
 
@@ -27,7 +28,7 @@ app.add_middleware(
 
 # Define los operadores lógicos permitidos
 # logical_operators = {'and', 'or', 'not', 'implies', 'iff'}
-logical_operators = {'∧', '∨', '¬', '→', '↔'}
+logical_operators = {'∧', '∨', '¬', '⊼', '⊽', '⊕'}
 # Función para verificar la sintaxis de la proposición
 
 
@@ -57,22 +58,27 @@ def to_sympy_expression(proposition):
     proposition = proposition.replace('∧', '&')
     proposition = proposition.replace('∨', '|')
     proposition = proposition.replace('¬', '~')
-    proposition = proposition.replace('→', '>>')
-    proposition = proposition.replace('↔', '==')
+    proposition = proposition.replace('⊼', '|~')
+    proposition = proposition.replace('⊽', '~^~')
+    proposition = proposition.replace('⊕', '^')
 
     try:
+        print(sympify(proposition))
         return sympify(proposition)
     except SympifyError as e:
         error_type = type(e).__name__
         error_location = str(e).split('\'')[1]
-        return f"Error de sintaxis en la proposición: {error_type} en {error_location}"
+        raise SympifyError(f"Error de sintaxis en la proposición: {error_type} en {error_location}")
+
 
 def revert_operators(expression):
     expression = expression.replace('&', '∧')
     expression = expression.replace('|', '∨')
     expression = expression.replace('~', '¬')
-    expression = expression.replace('>>', '→')
-    expression = expression.replace('==', '↔')
+    expression = expression.replace('|~', '⊼')
+    expression = expression.replace('~^', '⊽')
+    expression = expression.replace('^', '⊕')
+
     return expression
 
 
@@ -103,7 +109,7 @@ def obtener_valores_de_verdad(proposicion):
             valor_variable = (i // 2**j) % 2
             fila.append(True if valor_variable == 1 else False)
         # Evaluamos cada operación lógica y añadimos su resultado como una columna adicional
-        for operacion in expr.atoms(And, Or, Not, Xor, Implies, Equivalent):
+        for operacion in expr.atoms(And, Or, Not, Xor, Nand, Nor):
             resultado_operacion = operacion.subs(
                 {variables[k]: (i // 2**k) % 2 for k in range(len(variables))})
             nombre_operacion = str(operacion)
@@ -142,6 +148,7 @@ def read_root():
 def procesar_proposicion(operation: Operation):
     proposicion = operation.formula
     expresion = realizar_calculo(proposicion)
+    print(expresion)
     if expresion is not None:
         response = obtener_valores_de_verdad(str(expresion))
         print(response)
