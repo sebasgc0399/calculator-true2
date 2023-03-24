@@ -11,6 +11,10 @@ from sympy.parsing.sympy_parser import parse_expr
 import pandas as pd
 import regex as re
 
+
+from sympy.logic.boolalg import BooleanFunction
+from sympy.parsing.sympy_parser import (parse_expr, standard_transformations, implicit_multiplication_application)
+from sympy import sympify, SympifyError
 app = FastAPI()
 
 origins = [
@@ -24,6 +28,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+"""# Definir las funciones personalizadas
+class Nand(BooleanFunction):
+    @classmethod
+    def eval(cls, *args):
+        result = And(*args)
+        if result is not None:
+            return Not(result)
+
+class Nor(BooleanFunction):
+    @classmethod
+    def eval(cls, *args):
+        result = Or(*args)
+        if result is not None:
+            return Not(result)
+
+class Xor(BooleanFunction):
+    @classmethod
+    def eval(cls, *args):
+        if len(args) != 2:
+            raise ValueError("Xor requiere exactamente dos argumentos")
+        a, b = args
+        return Or(And(a, Not(b)), And(Not(a), b))"""
 
 
 # Define los operadores lógicos permitidos
@@ -52,19 +79,32 @@ def is_well_formed(proposition):
 
     return True
 
+
 # Función para convertir la proposición en una expresión de Sympy
 def to_sympy_expression(proposition):
     # Reemplaza los operadores lógicos por sus equivalentes en Sympy
     proposition = proposition.replace('∧', '&')
     proposition = proposition.replace('∨', '|')
     proposition = proposition.replace('¬', '~')
-    proposition = proposition.replace('⊼', '|~')
-    proposition = proposition.replace('⊽', '~^~')
     proposition = proposition.replace('⊕', '^')
 
+    # Define las funciones lambda para NAND y NOR
+    nand = lambda a, b: Not(And(a, b))
+    nor = lambda a, b: Not(Or(a, b))
+
+    # Reemplaza los operadores NAND y NOR en la proposición
+    while '⊼' in proposition or '⊽' in proposition:
+        for op, func in [('⊼', nand), ('⊽', nor)]:
+            i = proposition.find(op)
+            if i != -1:
+                left = symbols(proposition[i - 1])
+                right = symbols(proposition[i + 1])
+                new_expr = func(left, right)
+                proposition = proposition[:i - 1] + str(new_expr) + proposition[i + 2:]
+
     try:
-        print(sympify(proposition))
-        return sympify(proposition)
+        expr = parse_expr(proposition, evaluate=False)
+        return expr
     except SympifyError as e:
         error_type = type(e).__name__
         error_location = str(e).split('\'')[1]
@@ -75,10 +115,14 @@ def revert_operators(expression):
     expression = expression.replace('&', '∧')
     expression = expression.replace('|', '∨')
     expression = expression.replace('~', '¬')
-    expression = expression.replace('|~', '⊼')
-    expression = expression.replace('~^', '⊽')
+    expression = expression.replace('~&', '⊼')
+    expression = expression.replace('~|', '⊽')
     expression = expression.replace('^', '⊕')
 
+    # Reemplaza las expresiones equivalentes de NAND y NOR por sus símbolos originales
+    expression = expression.replace('~&', '⊼')
+    expression = expression.replace('~|', '⊽')
+    
     return expression
 
 
@@ -96,7 +140,7 @@ def realizar_calculo(proposicion):
 # Función para obtener los valores de verdad de una proposición
 def obtener_valores_de_verdad(proposicion):
     # Parsear la proposición como una expresión simbólica
-    expr = sympify(proposicion)
+    expr = to_sympy_expression(proposicion)
     # Obtener las variables de la proposición
     variables = list(expr.free_symbols)
     # Crear una tabla de verdad completa
